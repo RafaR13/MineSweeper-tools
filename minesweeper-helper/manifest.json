@@ -1,0 +1,24 @@
+{
+    "manifest_version": 3,
+    "name": "Minesweeper Helper",
+    "version": "1.0",
+    "description": "Highlights safe and mine cells in Minesweeper.",
+    "permissions": [
+        "scripting",
+        "activeTab"
+    ],
+    "host_permissions": [
+        "https://minesweeper.online/*"
+    ],
+    "content_scripts": [
+        {
+            "matches": [
+                "https://minesweeper.online/*"
+            ],
+            "js": [
+                "main.js"
+            ],
+            "run_at": "document_idle"
+        }
+    ]
+}

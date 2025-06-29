@@ -1,3 +1,6 @@
+let observer; // moved outside so we can control it from anywhere
+let previouslyHighlighted = [];
+
 function getNeighbors(grid, x, y) {
     const neighbors = [];
     for (let dy = -1; dy <= 1; dy++) {
@@ -45,10 +48,6 @@ function solveMinesweeper(grid) {
 function readBoard() {
     const cells = Array.from(document.querySelectorAll('.cell'));
     let maxX = 0, maxY = 0;
-    console.log("Found", cells.length, "cells");
-    for (const cell of cells) {
-        console.log(cell.id, cell.dataset.x, cell.dataset.y, cell.className);
-    }
 
     // First pass: get dimensions
     for (const cell of cells) {
@@ -105,15 +104,29 @@ function highlightCells(cells, color) {
         if (!el) continue;
         el.style.outline = `2px solid ${color}`;
         el.style.outlineOffset = '-2px';
+        previouslyHighlighted.push(el);
     }
 }
 
+function clearHighlights() {
+    for (const el of previouslyHighlighted) {
+        el.style.outline = '';
+        el.style.outlineOffset = '';
+    }
+    previouslyHighlighted = [];
+}
+
 function runHelper() {
+    if (observer) observer.disconnect(); // stop watching
+
+    clearHighlights();
+
     const grid = readBoard();
-    console.log('Current grid:', grid);
     const { safeCells, mineCells } = solveMinesweeper(grid);
-    highlightCells(safeCells, 'lime');  // Suggest clicks
-    highlightCells(mineCells, 'red');   // Suggest flags
+    highlightCells(safeCells, 'lime');
+    highlightCells(mineCells, 'red');
+
+    if (game) observer.observe(game, { childList: true, subtree: true, attributes: true }); // resume
 }
 
 function waitForBoardThenRun() {
@@ -131,14 +144,6 @@ function waitForBoardThenRun() {
 }
 
 waitForBoardThenRun();
-
-
-// Watch for updates
-const observer = new MutationObserver(runHelper);
-const game = document.getElementById('game');
-if (game) {
-    observer.observe(game, { childList: true, subtree: true, attributes: true });
-}
 
 // Create and insert helper button
 const suggestBtn = document.createElement('button');

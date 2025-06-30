@@ -21,12 +21,11 @@ function getNeighbors(grid, x, y) {
 function solveMinesweeper(grid) {
     const safeCells = [];
     const mineCells = [];
-    let updated = true;
+    let progress = true;
 
-    while (updated) {
-        updated = false;
+    while (progress) {
+        progress = false;
 
-        // --- Basic Logic Pass ---
         for (let y = 0; y < grid.length; y++) {
             for (let x = 0; x < grid[y].length; x++) {
                 const cell = grid[y][x];
@@ -35,77 +34,56 @@ function solveMinesweeper(grid) {
                 const neighbors = getNeighbors(grid, x, y);
                 const unopened = neighbors.filter(n => n.state === 'U');
                 const flagged = neighbors.filter(n => n.state === 'F');
+                const minesLeft = cell.state - flagged.length;
 
-                if (unopened.length === 0) continue;
+                if (unopened.length === 0 || minesLeft < 0) continue;
 
-                if (flagged.length + unopened.length === cell.state) {
-                    for (const c of unopened) {
-                        if (c.state === 'U') {
+                // Basic logic
+                if (minesLeft === unopened.length) {
+                    unopened.forEach(c => {
+                        mineCells.push(c);
+                        grid[c.y][c.x] = { ...c, state: 'F' };
+                    });
+                    progress = true;
+                } else if (minesLeft === 0) {
+                    unopened.forEach(c => {
+                        safeCells.push(c);
+                        grid[c.y][c.x] = { ...c, state: 'S' };
+                    });
+                    progress = true;
+                }
+
+                // Advanced subset logic
+                for (const other of neighbors.filter(n => typeof n.state === 'number')) {
+                    const otherNeighbors = getNeighbors(grid, other.x, other.y);
+                    const otherUnopened = otherNeighbors.filter(n => n.state === 'U');
+                    const otherFlagged = otherNeighbors.filter(n => n.state === 'F');
+                    const otherMinesLeft = other.state - otherFlagged.length;
+
+                    const A = new Set(unopened.map(c => `${c.x},${c.y}`));
+                    const B = new Set(otherUnopened.map(c => `${c.x},${c.y}`));
+
+                    const AinsideB = [...A].every(id => B.has(id));
+                    const BinsideA = [...B].every(id => A.has(id));
+
+                    // A ⊂ B
+                    if (AinsideB && B.size > A.size && (otherMinesLeft - minesLeft) === (B.size - A.size)) {
+                        const extras = otherUnopened.filter(c => !A.has(`${c.x},${c.y}`));
+                        extras.forEach(c => {
                             mineCells.push(c);
                             grid[c.y][c.x] = { ...c, state: 'F' };
-                            updated = true;
-                        }
+                        });
+                        progress = true;
                     }
-                } else if (flagged.length === cell.state) {
-                    for (const c of unopened) {
-                        if (c.state === 'U') {
+
+                    // A ⊂ B, but difference is safe
+                    if (AinsideB && (B.size > A.size) && (minesLeft === otherMinesLeft)) {
+                        const extras = otherUnopened.filter(c => !A.has(`${c.x},${c.y}`));
+                        extras.forEach(c => {
                             safeCells.push(c);
                             grid[c.y][c.x] = { ...c, state: 'S' };
-                            updated = true;
-                        }
-                    }
-                }
-            }
-        }
-        if (!updated) {
-            // --- Subset Logic Pass ---
-            for (let y = 0; y < grid.length; y++) {
-                for (let x = 0; x < grid[y].length; x++) {
-                    const cellA = grid[y][x];
-                    if (!cellA || typeof cellA.state !== 'number') continue;
-
-                    const neighborsA = getNeighbors(grid, x, y);
-                    const unopenedA = neighborsA.filter(n => n.state === 'U');
-                    const flaggedA = neighborsA.filter(n => n.state === 'F');
-
-                    const minesLeftA = cellA.state - flaggedA.length;
-                    if (minesLeftA <= 0 || unopenedA.length === 0) continue;
-
-                    for (const neighbor of neighborsA) {
-                        if (!neighbor || typeof neighbor.state !== 'number') continue;
-                        const neighborsB = getNeighbors(grid, neighbor.x, neighbor.y);
-                        const unopenedB = neighborsB.filter(n => n.state === 'U');
-                        const flaggedB = neighborsB.filter(n => n.state === 'F');
-                        const minesLeftB = neighbor.state - flaggedB.length;
-
-                        const setA = new Set(unopenedA.map(c => `${c.x},${c.y}`));
-                        const setB = new Set(unopenedB.map(c => `${c.x},${c.y}`));
-
-                        const extraCells = unopenedB.filter(
-                            c => !setA.has(`${c.x},${c.y}`)
-                        );
-
-                        if (extraCells.length === 0) continue;
-
-                        if (setA.size < setB.size &&
-                            minesLeftB - minesLeftA === extraCells.length) {
-                            for (const c of extraCells) {
-                                if (c.state === 'U') {
-                                    mineCells.push(c);
-                                    grid[c.y][c.x] = { ...c, state: 'F' };
-                                    updated = true;
-                                }
-                            }
-                        } else if (setA.size < setB.size &&
-                            setB.size - setA.size === minesLeftB - minesLeftA) {
-                            for (const c of extraCells) {
-                                if (c.state === 'U') {
-                                    safeCells.push(c);
-                                    grid[c.y][c.x] = { ...c, state: 'S' };
-                                    updated = true;
-                                }
-                            }
-                        }
+                        });
+                        progress = true;
                     }
                 }
             }

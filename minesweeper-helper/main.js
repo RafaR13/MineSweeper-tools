@@ -46,8 +46,9 @@ function solveMinesweeper(grid) {
                     });
                     progress = true;
                 } else if (minesLeft === 0) {
+                    safeCells.push(cell);
                     unopened.forEach(c => {
-                        safeCells.push(c);
+                        //safeCells.push(c);
                         grid[c.y][c.x] = { ...c, state: 'S' };
                     });
                     progress = true;

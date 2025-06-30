@@ -21,11 +21,12 @@ function getNeighbors(grid, x, y) {
 function solveMinesweeper(grid) {
     const safeCells = [];
     const mineCells = [];
-    let isFinished = false;
+    let updated = true;
 
-    while (!isFinished) {
-        isFinished = true;
+    while (updated) {
+        updated = false;
 
+        // --- Basic Logic Pass ---
         for (let y = 0; y < grid.length; y++) {
             for (let x = 0; x < grid[y].length; x++) {
                 const cell = grid[y][x];
@@ -38,18 +39,73 @@ function solveMinesweeper(grid) {
                 if (unopened.length === 0) continue;
 
                 if (flagged.length + unopened.length === cell.state) {
-                    // All unopened are mines
                     for (const c of unopened) {
-                        mineCells.push(c);
-                        grid[c.y][c.x] = { ...c, state: 'F' };
-                        isFinished = false;
+                        if (c.state === 'U') {
+                            mineCells.push(c);
+                            grid[c.y][c.x] = { ...c, state: 'F' };
+                            updated = true;
+                        }
                     }
                 } else if (flagged.length === cell.state) {
-                    // All unopened are safe
                     for (const c of unopened) {
-                        safeCells.push(c);
-                        grid[c.y][c.x] = { ...c, state: 'S' };
-                        isFinished = false;
+                        if (c.state === 'U') {
+                            safeCells.push(c);
+                            grid[c.y][c.x] = { ...c, state: 'S' };
+                            updated = true;
+                        }
+                    }
+                }
+            }
+        }
+        if (!updated) {
+            // --- Subset Logic Pass ---
+            for (let y = 0; y < grid.length; y++) {
+                for (let x = 0; x < grid[y].length; x++) {
+                    const cellA = grid[y][x];
+                    if (!cellA || typeof cellA.state !== 'number') continue;
+
+                    const neighborsA = getNeighbors(grid, x, y);
+                    const unopenedA = neighborsA.filter(n => n.state === 'U');
+                    const flaggedA = neighborsA.filter(n => n.state === 'F');
+
+                    const minesLeftA = cellA.state - flaggedA.length;
+                    if (minesLeftA <= 0 || unopenedA.length === 0) continue;
+
+                    for (const neighbor of neighborsA) {
+                        if (!neighbor || typeof neighbor.state !== 'number') continue;
+                        const neighborsB = getNeighbors(grid, neighbor.x, neighbor.y);
+                        const unopenedB = neighborsB.filter(n => n.state === 'U');
+                        const flaggedB = neighborsB.filter(n => n.state === 'F');
+                        const minesLeftB = neighbor.state - flaggedB.length;
+
+                        const setA = new Set(unopenedA.map(c => `${c.x},${c.y}`));
+                        const setB = new Set(unopenedB.map(c => `${c.x},${c.y}`));
+
+                        const extraCells = unopenedB.filter(
+                            c => !setA.has(`${c.x},${c.y}`)
+                        );
+
+                        if (extraCells.length === 0) continue;
+
+                        if (setA.size < setB.size &&
+                            minesLeftB - minesLeftA === extraCells.length) {
+                            for (const c of extraCells) {
+                                if (c.state === 'U') {
+                                    mineCells.push(c);
+                                    grid[c.y][c.x] = { ...c, state: 'F' };
+                                    updated = true;
+                                }
+                            }
+                        } else if (setA.size < setB.size &&
+                            setB.size - setA.size === minesLeftB - minesLeftA) {
+                            for (const c of extraCells) {
+                                if (c.state === 'U') {
+                                    safeCells.push(c);
+                                    grid[c.y][c.x] = { ...c, state: 'S' };
+                                    updated = true;
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -113,7 +169,6 @@ function readBoard() {
     return grid;
 }
 
-
 function highlightCells(cells, color) {
     for (const { el } of cells) {
         if (!el) continue;
@@ -157,7 +212,6 @@ function startObserving() {
 
     observerActive = true;
 }
-
 
 function stopObserving() {
     if (observer) {

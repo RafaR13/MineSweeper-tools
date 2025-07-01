@@ -143,8 +143,77 @@ function applyPatternLogic(grid, cell, neighbors, safeCells, mineCells, minesLef
     // Triangles
     // High complexity patterns (1-3-1 corner, 2-2-2 corner, 1>2<1, T-pattern, Dependency chains)
     // Last turns (Mine counting, combinations)
+
+    // #########################################################################################
+    // check 1-1 pattern
+    // all left neigh
     return false;
 }
+
+function getCell(grid, x, y) {
+    if (y < 0 || y >= grid.length || x < 0 || x >= grid[0].length) return null;
+    return grid[y][x];
+}
+
+function checkAll11Patterns(grid, x, y, safeCells) {
+    const get = (dx, dy) => getCell(grid, x + dx, y + dy);
+    const addSafe = (cell) => {
+        if (cell && cell.state === 'U') {
+            safeCells.push(cell);
+            grid[cell.y][cell.x] = { ...cell, state: 'S' };
+            return true;
+        }
+        return false;
+    };
+
+    // Horizontal → (x, y) and (x+1, y)
+    if (
+        get(0, 0)?.state === 1 && get(1, 0)?.state === 1 &&
+        [get(-1, 0), get(-1, -1), get(-1, 1)].every(c => !c || (typeof c.state === 'number')) &&
+        [get(0, 1), get(1, 1)].every(c => !c || (typeof c.state === 'number')) &&
+        [get(0, -1), get(1, -1)].every(c => c?.state === 'U') &&
+        get(2, -1)
+    ) {
+        if (addSafe(get(2, -1))) return true;
+    }
+
+    // Horizontal ← (x, y) and (x-1, y)
+    if (
+        get(0, 0)?.state === 1 && get(-1, 0)?.state === 1 &&
+        [get(1, 0), get(1, -1), get(1, 1)].every(c => !c || (typeof c.state === 'number')) &&
+        [get(0, 1), get(-1, 1)].every(c => !c || (typeof c.state === 'number')) &&
+        [get(0, -1), get(-1, -1)].every(c => c?.state === 'U') &&
+        get(-2, -1)
+    ) {
+        if (addSafe(get(-2, -1))) return true;
+    }
+
+    // Vertical ↓ (x, y) and (x, y+1)
+    if (
+        get(0, 0)?.state === 1 && get(0, 1)?.state === 1 &&
+        [get(0, -1), get(-1, -1), get(1, -1)].every(c => !c || (typeof c.state === 'number')) &&
+        [get(-1, 0), get(1, 0)].every(c => !c || (typeof c.state === 'number')) &&
+        [get(-1, 1), get(1, 1)].every(c => c?.state === 'U') &&
+        get(1, 2)
+    ) {
+        if (addSafe(get(1, 2))) return true;
+    }
+
+    // Vertical ↑ (x, y) and (x, y-1)
+    if (
+        get(0, 0)?.state === 1 && get(0, -1)?.state === 1 &&
+        [get(0, 1), get(-1, 1), get(1, 1)].every(c => !c || (typeof c.state === 'number')) &&
+        [get(-1, 0), get(1, 0)].every(c => !c || (typeof c.state === 'number')) &&
+        [get(-1, -1), get(1, -1)].every(c => c?.state === 'U') &&
+        get(1, -2)
+    ) {
+        if (addSafe(get(1, -2))) return true;
+    }
+
+    return false;
+}
+
+
 
 function solveMinesweeper(grid, minesLeft) {
     const safeCells = [];

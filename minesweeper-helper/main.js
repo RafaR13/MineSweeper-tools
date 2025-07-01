@@ -146,7 +146,7 @@ function applyPatternLogic(grid, cell, neighbors, safeCells, mineCells, minesLef
 
     // #########################################################################################
     // check 1-1 pattern
-    // all left neigh
+    if (checkAll11Patterns(grid, cell.x, cell.y, safeCells)) progress = true;
     return false;
 }
 
@@ -174,7 +174,11 @@ function checkAll11Patterns(grid, x, y, safeCells) {
         [get(0, -1), get(1, -1)].every(c => c?.state === 'U') &&
         get(2, -1)
     ) {
-        if (addSafe(get(2, -1))) return true;
+        let progress = false;
+        if (addSafe(get(2, -1))) progress = true;
+        if (addSafe(get(2, 0))) progress = true;
+        if (addSafe(get(2, 1))) progress = true;
+        return progress;
     }
 
     // Horizontal ← (x, y) and (x-1, y)
@@ -185,7 +189,11 @@ function checkAll11Patterns(grid, x, y, safeCells) {
         [get(0, -1), get(-1, -1)].every(c => c?.state === 'U') &&
         get(-2, -1)
     ) {
-        if (addSafe(get(-2, -1))) return true;
+        let progress = false;
+        if (addSafe(get(-2, -1))) progress = true;
+        if (addSafe(get(-2, 0))) progress = true;
+        if (addSafe(get(-2, 1))) progress = true;
+        return progress;
     }
 
     // Vertical ↓ (x, y) and (x, y+1)
@@ -196,7 +204,11 @@ function checkAll11Patterns(grid, x, y, safeCells) {
         [get(-1, 1), get(1, 1)].every(c => c?.state === 'U') &&
         get(1, 2)
     ) {
-        if (addSafe(get(1, 2))) return true;
+        let progress = false;
+        if (addSafe(get(1, 2))) progress = true;
+        if (addSafe(get(0, 2))) progress = true;
+        if (addSafe(get(-1, 2))) progress = true;
+        return progress;
     }
 
     // Vertical ↑ (x, y) and (x, y-1)
@@ -207,7 +219,11 @@ function checkAll11Patterns(grid, x, y, safeCells) {
         [get(-1, -1), get(1, -1)].every(c => c?.state === 'U') &&
         get(1, -2)
     ) {
-        if (addSafe(get(1, -2))) return true;
+        let progress = false;
+        if (addSafe(get(1, -2))) progress = true;
+        if (addSafe(get(0, -2))) progress = true;
+        if (addSafe(get(-1, -2))) progress = true;
+        return progress;
     }
 
     return false;

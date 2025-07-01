@@ -147,6 +147,9 @@ function applyPatternLogic(grid, cell, neighbors, safeCells, mineCells, minesLef
     // #########################################################################################
     // check 1-1 pattern
     if (checkAll11Patterns(grid, cell.x, cell.y, safeCells)) progress = true;
+    if (checkAll121Patterns(grid, cell.x, cell.y, mineCells, safeCells)) progress = true;
+    if (checkAll1221Patterns(grid, cell.x, cell.y, mineCells, safeCells)) progress = true;
+    if (checkAll12Patterns(grid, cell.x, cell.y, mineCells)) progress = true;
     return false;
 }
 
@@ -229,6 +232,9 @@ function checkAll11Patterns(grid, x, y, safeCells) {
     return false;
 }
 
+function checkAll12Patterns(grid, x, y, mineCells) { return false; }
+function checkAll121Patterns(grid, x, y, mineCells, safeCells) { return false; }
+function checkAll1221Patterns(grid, x, y, mineCells, safeCells) { return false; }
 
 
 function solveMinesweeper(grid, minesLeft) {

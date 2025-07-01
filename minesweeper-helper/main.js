@@ -232,7 +232,98 @@ function checkAll11Patterns(grid, x, y, safeCells) {
     return false;
 }
 
-function checkAll12Patterns(grid, x, y, mineCells) { return false; }
+function checkAll1XCornerPatterns(grid, x, y, mineCells, safeCells) {
+    const getCellSafe = (grid, x, y) =>
+        x >= 0 && y >= 0 && y < grid.length && x < grid[0].length ? grid[y][x] : undefined;
+
+    const checkPattern = (gx, gy, dx, dy, ddx, ddy) => {
+        const get = (dx2, dy2) => getCellSafe(grid, gx + dx2, gy + dy2);
+
+        const addMine = (cell) => {
+            if (cell && cell.state === 'U') {
+                mineCells.push(cell);
+                grid[cell.y][cell.x] = { ...cell, state: 'F' };
+                return true;
+            }
+            return false;
+        };
+
+        const addSafe = (cell) => {
+            if (cell && cell.state === 'U') {
+                safeCells.push(cell);
+                grid[cell.y][cell.x] = { ...cell, state: 'S' };
+                return true;
+            }
+            return false;
+        };
+
+        const f = get(0, 0);         // center 1
+        const g = get(dx, dy);       // number (2,3,4)
+        const d = get(2 * dx, 2 * dy);     // target cell to mark
+        const b = get(-dy, -dx);     // upper left
+        const c = get(0, -dx);       // directly above
+        const h = get(dx + dy, dy + dx);   // side cell
+        const l = get(dx - dy, dy - dx);   // opposite side
+        const j = get(0, ddy);       // bottom-left
+        const k = get(dx, ddy);      // bottom-right
+
+        if (!f || f.state !== 1) return false;
+        if ([b, c, d].some(cell => cell?.state !== 'U')) return false;
+        if ([j, k].some(cell => cell?.state === 'U')) return false;
+        if (!g || ![2, 3, 4].includes(g.state)) return false;
+
+        let progress = false;
+
+        if (g.state === 2) {
+            const hF = h?.state === 'F', lF = l?.state === 'F';
+            const hC = h && typeof h.state === 'number';
+            const lC = l && typeof l.state === 'number';
+            if (hF || lF) {
+                progress |= addSafe(d);
+            } else if (hC && lC) {
+                progress |= addMine(d);
+            }
+        }
+
+        if (g.state === 3) {
+            const hF = h?.state === 'F', lF = l?.state === 'F';
+            const hC = h && typeof h.state === 'number', lC = l && typeof l.state === 'number';
+            const hU = h?.state === 'U', lU = l?.state === 'U';
+
+            if (lF && (hC || !h)) progress |= addMine(d);
+            if (hF && (lC || !l)) progress |= addMine(d);
+            if (hU && lC) {
+                progress |= addMine(h);
+                progress |= addMine(d);
+            }
+            if (lU && hC) {
+                progress |= addMine(l);
+                progress |= addMine(d);
+            }
+        }
+
+        if (g.state === 4 && h?.state === 'U' && l?.state === 'U') {
+            progress |= addMine(h);
+            progress |= addMine(l);
+            progress |= addMine(d);
+        }
+
+        return !!progress;
+    };
+
+    // Try all 4 directions:
+    // Right (→)
+    const progress1 = checkPattern(x, y, 1, 0, 0, 1);
+    // Left (←)
+    const progress2 = checkPattern(x, y, -1, 0, 0, 1);
+    // Down (↓)
+    const progress3 = checkPattern(x, y, 0, 1, 1, 0);
+    // Up (↑)
+    const progress4 = checkPattern(x, y, 0, -1, 1, 0);
+
+    return progress1 || progress2 || progress3 || progress4;
+}
+
 function checkAll121Patterns(grid, x, y, mineCells, safeCells) { return false; }
 function checkAll1221Patterns(grid, x, y, mineCells, safeCells) { return false; }
 

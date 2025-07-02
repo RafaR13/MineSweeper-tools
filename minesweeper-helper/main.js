@@ -109,7 +109,7 @@ function getNeighbors(grid, x, y) {
     return neighbors;
 }
 
-function applyBasicLogic(grid, cell, x, y, neighbors, safeCells, mineCells) {
+function applyBasicLogic(grid, cell, neighbors, safeCells, mineCells) {
     // Basic Logic:
     // Square with number n has already n adjacent flags --> remaining adjacent cells are safe
     // Square with number n has 0 adjacent flags and n unopened neighbors --> all unopened neighbors are safe
@@ -150,10 +150,13 @@ function applyPatternLogic(grid, x, y, safeCells, mineCells) {
 
     // #########################################################################################
     // check 1-1 pattern
-    if (checkAll11Patterns(grid, x, y, safeCells)) progress = true;
+    //if (checkAll11Patterns(grid, x, y, safeCells)) progress = true;
+    //if (progress) {
+    //if (applyBasicLogic(grid, grid[y][x], getNeighbors(grid, x, y), safeCells, mineCells)) progress = true;
+    //}
     //if (checkAll121Patterns(grid, x, y, mineCells, safeCells)) progress = true;
     //if (checkAll1221Patterns(grid, x, y, mineCells, safeCells)) progress = true;
-    //if (checkAll12Patterns(grid, x, y, mineCells)) progress = true;
+    if (checkAll12Patterns(grid, x, y, mineCells)) progress = true;
     return progress;
 }
 
@@ -236,95 +239,110 @@ function checkAll11Patterns(grid, x, y, safeCells) {
     return false;
 }
 
+function checkAll12Patterns(grid, x, y, mineCells) {
+    const get = (dx, dy) => getCell(grid, x + dx, y + dy);
+    const isNumber = (c) => !c || typeof c.state === 'number' || c.state === 'S';
+    const isUnknown = (c) => c?.state === 'U';
 
-function checkAll12Patterns(grid, x, y, mineCells, safeCells) {
-
-    const checkPattern = (gx, gy, dx, dy, ddx, ddy) => {
-        const get = (dx2, dy2) => getCell(grid, gx + dx2, gy + dy2);
-
-        const addMine = (cell) => {
-            if (cell && cell.state === 'U') {
-                mineCells.push(cell);
-                grid[cell.y][cell.x] = { ...cell, state: 'F' };
-                return true;
-            }
-            return false;
-        };
-
-        const addSafe = (cell) => {
-            if (cell && cell.state === 'U') {
-                safeCells.push(cell);
-                grid[cell.y][cell.x] = { ...cell, state: 'S' };
-                return true;
-            }
-            return false;
-        };
-
-        const f = get(0, 0);         // center 1
-        const g = get(dx, dy);       // number (2,3,4)
-        const d = get(2 * dx, 2 * dy);     // target cell to mark
-        const b = get(-dy, -dx);     // upper left
-        const c = get(0, -dx);       // directly above
-        const h = get(dx + dy, dy + dx);   // side cell
-        const l = get(dx - dy, dy - dx);   // opposite side
-        const j = get(0, ddy);       // bottom-left
-        const k = get(dx, ddy);      // bottom-right
-
-        if (!f || f.state !== 1) return false;
-        if ([b, c, d].some(cell => cell?.state !== 'U')) return false;
-        if ([j, k].some(cell => cell?.state === 'U')) return false;
-        if (!g || ![2, 3, 4].includes(g.state)) return false;
-
-        let progress = false;
-
-        if (g.state === 2) {
-            const hF = h?.state === 'F', lF = l?.state === 'F';
-            const hC = h && typeof h.state === 'number';
-            const lC = l && typeof l.state === 'number';
-            if (hF || lF) {
-                progress |= addSafe(d);
-            } else if (hC && lC) {
-                progress |= addMine(d);
-            }
+    const addMine = (cell) => {
+        if (isUnknown(cell)) {
+            mineCells.push(cell);
+            cell.state = 'F';
+            return true;
         }
-
-        if (g.state === 3) {
-            const hF = h?.state === 'F', lF = l?.state === 'F';
-            const hC = h && typeof h.state === 'number', lC = l && typeof l.state === 'number';
-            const hU = h?.state === 'U', lU = l?.state === 'U';
-
-            if (lF && (hC || !h)) progress |= addMine(d);
-            if (hF && (lC || !l)) progress |= addMine(d);
-            if (hU && lC) {
-                progress |= addMine(h);
-                progress |= addMine(d);
-            }
-            if (lU && hC) {
-                progress |= addMine(l);
-                progress |= addMine(d);
-            }
-        }
-
-        if (g.state === 4 && h?.state === 'U' && l?.state === 'U') {
-            progress |= addMine(h);
-            progress |= addMine(l);
-            progress |= addMine(d);
-        }
-
-        return !!progress;
+        return false;
     };
 
-    // Try all 4 directions:
-    // Right (→)
-    const progress1 = checkPattern(x, y, 1, 0, 0, 1);
-    // Left (←)
-    const progress2 = checkPattern(x, y, -1, 0, 0, 1);
-    // Down (↓)
-    const progress3 = checkPattern(x, y, 0, 1, 1, 0);
-    // Up (↑)
-    const progress4 = checkPattern(x, y, 0, -1, 1, 0);
+    const directions = [
+        {
+            name: "Horizontal →",
+            pattern: [[0, 0], [1, 0]],
+            mustBeNumbers: [[0, 1], [1, 1]],
+            mustBeUnknowns: [[0, -1], [1, -1], [2, -1]],
+            toFlag: [[2, -1]],
+            toFlag3and4: [[2, 0], [2, 1]],
+            cantBeFlagged: [[-1, -1], [-1, 0], [-1, 1]]
+        },
+        {
+            name: "Vertical ↓",
+            pattern: [[0, 0], [0, 1]],
+            mustBeNumbers: [[1, 0], [1, 1]],
+            mustBeUnknowns: [[-1, 0], [-1, 1], [-1, 2]],
+            toFlag: [[-1, 2]],
+            toFlag3and4: [[0, 2], [1, 2]],
+            cantBeFlagged: [[1, -1], [0, -1], [-1, -1]]
+        }
+    ];
 
-    return progress1 || progress2 || progress3 || progress4;
+    const generateVariants = (dir) => {
+        const invertX = ([dx, dy]) => [-dx, dy];
+        const invertY = ([dx, dy]) => [dx, -dy];
+
+        const variants = [
+            { ...dir, name: dir.name + "", transform: (pt) => pt }, // original
+            { ...dir, name: dir.name + " (Flip Y)", transform: invertY },
+            { ...dir, name: dir.name + " (Flip X)", transform: invertX },
+        ];
+
+        return variants.map(variant => ({
+            name: variant.name,
+            pattern: dir.pattern.map(variant.transform),
+            mustBeNumbers: dir.mustBeNumbers.map(variant.transform),
+            mustBeUnknowns: dir.mustBeUnknowns.map(variant.transform),
+            toFlag: dir.toFlag.map(variant.transform),
+            toFlag3and4: dir.toFlag3and4.map(variant.transform),
+            cantBeFlagged: dir.cantBeFlagged.map(variant.transform)
+        }));
+    };
+
+    for (const baseDir of directions) {
+        const allVariants = generateVariants(baseDir);
+        for (const dir of allVariants) {
+            if (
+                get(dir.pattern[0][0], dir.pattern[0][1])?.state === 1 && // check if first pattern cell is 1
+                [2, 3, 4].includes(get(dir.pattern[1][0], dir.pattern[1][1])?.state) && // check if second pattern cell is 2, 3, or 4
+                dir.mustBeNumbers.every(([dx, dy]) => isNumber(get(dx, dy))) && // check if cells are numbers (0-8) (opened and not flagged, or wall)
+                dir.mustBeUnknowns.every(([dx, dy]) => isUnknown(get(dx, dy))) && // check if cells are unknown (Unopened)
+                dir.cantBeFlagged.every(([dx, dy]) => get(dx, dy)?.state !== 'F') // check if cells are not flagged (opened and safe, unopened, or wall)
+            ) {
+                // if state of second pattern cell is 2, toflag3and4 must opened and not flagged
+                if (get(dir.pattern[1][0], dir.pattern[1][1]).state === 2) {
+                    if (!dir.toFlag3and4.every(([dx, dy]) => isNumber(get(dx, dy)))) {
+                        continue;
+                    }
+                    return addMine(get(dir.toFlag[0][0], dir.toFlag[0][1]));
+                } else if (get(dir.pattern[1][0], dir.pattern[1][1]).state === 3) {
+                    // one of toflag3and3 must be unknown and the other opened and not flagged
+                    if (!(dir.toFlag3and4.some(([dx, dy]) => isUnknown(get(dx, dy))) &&
+                        dir.toFlag3and4.some(([dx, dy]) => isNumber(get(dx, dy))))) {
+                        continue;
+                    }
+                    let progress = false;
+                    if (addMine(get(dir.toFlag[0][0], dir.toFlag[0][1]))) progress = true;
+                    // add the mine to the unknown cell
+                    for (const [dx, dy] of dir.toFlag3and4) {
+                        if (isUnknown(get(dx, dy))) {
+                            if (addMine(get(dx, dy))) progress = true;
+                        }
+                    }
+                    return progress;
+                } else {
+                    // both of toflag3and4 must be unknown
+                    if (!dir.toFlag3and4.every(([dx, dy]) => isUnknown(get(dx, dy)))) {
+                        continue;
+                    }
+                    let progress = false;
+                    if (addMine(get(dir.toFlag[0][0], dir.toFlag[0][1]))) progress = true;
+                    // add the mine to the unknown cells
+                    for (const [dx, dy] of dir.toFlag3and4) {
+                        if (addMine(get(dx, dy))) progress = true;
+                    }
+                    return progress;
+                }
+            }
+        }
+    }
+    return false;
 }
 
 /*function checkAll121Patterns(grid, x, y, mineCells, safeCells) { return false; }
@@ -348,10 +366,10 @@ function solveMinesweeper(grid, minesLeft) {
                 // ####################################################
                 // TODO: check for errors that the user might have made
                 // ####################################################
-                if (applyBasicLogic(grid, cell, x, y, neighbors, safeCells, mineCells)) progress = true;
-                if (progress == false) {
-                    if (applyPatternLogic(grid, x, y, safeCells, mineCells)) progress = true;
-                }
+                //if (applyBasicLogic(grid, cell, neighbors, safeCells, mineCells)) progress = true;
+                //if (progress == false) {
+                if (applyPatternLogic(grid, x, y, safeCells, mineCells)) progress = true;
+                //}
             }
         }
     }

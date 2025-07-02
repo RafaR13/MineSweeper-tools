@@ -109,8 +109,8 @@ function getNeighbors(grid, x, y) {
     return neighbors;
 }
 
-function applyBasicLogic(grid, cell, neighbors, safeCells, mineCells) {
-    // Basic Logic: 
+function applyBasicLogic(grid, cell, x, y, neighbors, safeCells, mineCells) {
+    // Basic Logic:
     // Square with number n has already n adjacent flags --> remaining adjacent cells are safe
     // Square with number n has 0 adjacent flags and n unopened neighbors --> all unopened neighbors are safe
 
@@ -121,21 +121,19 @@ function applyBasicLogic(grid, cell, neighbors, safeCells, mineCells) {
     if (unopened.length === 0 || minesLeft < 0) return false;
 
     if (minesLeft === unopened.length) {
-        if (!mineCells.some(c => c.x === cell.x && c.y === cell.y)) {
-            mineCells.push(cell);
-            unopened.forEach(c => {
-                grid[c.y][c.x] = { ...c, state: 'F' };
-            });
-            return true;
-        }
+        unopened.forEach(c => {
+            mineCells.push(c);
+            grid[c.y][c.x] = { ...c, state: 'F' };
+        });
+        return true;
     } else if (minesLeft === 0) {
-        if (!safeCells.some(c => c.x === cell.x && c.y === cell.y)) {
-            safeCells.push(cell);
-            unopened.forEach(c => {
-                grid[c.y][c.x] = { ...c, state: 'S' };
-            });
-            return true;
-        }
+        safeCells.push(cell);
+
+        unopened.forEach(c => {
+            grid[c.y][c.x] = { ...c, state: 'S' };
+        });
+        return true;
+
     }
     return false;
 }
@@ -155,7 +153,7 @@ function applyPatternLogic(grid, x, y, safeCells, mineCells) {
     if (checkAll11Patterns(grid, x, y, safeCells)) progress = true;
     //if (checkAll121Patterns(grid, x, y, mineCells, safeCells)) progress = true;
     //if (checkAll1221Patterns(grid, x, y, mineCells, safeCells)) progress = true;
-    if (checkAll12Patterns(grid, x, y, mineCells)) progress = true;
+    //if (checkAll12Patterns(grid, x, y, mineCells)) progress = true;
     return progress;
 }
 
@@ -166,7 +164,7 @@ function getCell(grid, x, y) {
 
 function checkAll11Patterns(grid, x, y, safeCells) {
     const get = (dx, dy) => getCell(grid, x + dx, y + dy);
-    const isNumber = (c) => !c || typeof c.state === 'number';
+    const isNumber = (c) => !c || typeof c.state === 'number' || c.state === 'S';
     const isUnknown = (c) => c?.state === 'U';
 
     const addSafe = (cell) => {
@@ -183,52 +181,58 @@ function checkAll11Patterns(grid, x, y, safeCells) {
             name: "Horizontal →",
             pattern: [[0, 0], [1, 0]],
             mustBeNumbers: [[-1, 0], [-1, -1], [-1, 1], [0, 1], [1, 1]],
-            mustBeUnknowns: [[0, -1], [1, -1]],
+            mustBeUnknowns: [[0, -1], [1, -1], [2, -1]],
             toMarkSafe: [[2, -1], [2, 0], [2, 1]],
-            existsCheck: [2, -1]
-        },
-        {
-            name: "Horizontal ←",
-            pattern: [[0, 0], [-1, 0]],
-            mustBeNumbers: [[1, 0], [1, -1], [1, 1], [0, 1], [-1, 1]],
-            mustBeUnknowns: [[0, -1], [-1, -1]],
-            toMarkSafe: [[-2, -1], [-2, 0], [-2, 1]],
-            existsCheck: [-2, -1]
+            cantBeFlagged: [[2, 0], [2, 1]],
         },
         {
             name: "Vertical ↓",
             pattern: [[0, 0], [0, 1]],
-            mustBeNumbers: [[0, -1], [-1, -1], [1, -1], [-1, 0], [1, 0]],
-            mustBeUnknowns: [[-1, 1], [1, 1]],
+            mustBeNumbers: [[0, -1], [-1, -1], [1, -1], [-1, 0], [-1, 1]],
+            mustBeUnknowns: [[1, 0], [1, 1], [1, 2]],
             toMarkSafe: [[1, 2], [0, 2], [-1, 2]],
-            existsCheck: [1, 2]
-        },
-        {
-            name: "Vertical ↑",
-            pattern: [[0, 0], [0, -1]],
-            mustBeNumbers: [[0, 1], [-1, 1], [1, 1], [-1, 0], [1, 0]],
-            mustBeUnknowns: [[-1, -1], [1, -1]],
-            toMarkSafe: [[1, -2], [0, -2], [-1, -2]],
-            existsCheck: [1, -2]
+            cantBeFlagged: [[0, 2], [-1, 2]]
         }
     ];
 
-    for (const dir of directions) {
-        if (
-            dir.pattern.every(([dx, dy]) => get(dx, dy)?.state === 1) &&
-            dir.mustBeNumbers.every(([dx, dy]) => isNumber(get(dx, dy))) &&
-            dir.mustBeUnknowns.every(([dx, dy]) => isUnknown(get(dx, dy))) &&
-            get(...dir.existsCheck)
-        ) {
-            let progress = false;
-            for (const [dx, dy] of dir.toMarkSafe) {
-                if (addSafe(get(dx, dy))) progress = true;
+    const generateVariants = (dir) => {
+        const invertX = ([dx, dy]) => [-dx, dy];
+        const invertY = ([dx, dy]) => [dx, -dy];
+
+        const variants = [
+            { ...dir, name: dir.name + "", transform: (pt) => pt }, // original
+            { ...dir, name: dir.name + " (Flip Y)", transform: invertY },
+            { ...dir, name: dir.name + " (Flip X)", transform: invertX },
+        ];
+
+        return variants.map(variant => ({
+            name: variant.name,
+            pattern: dir.pattern.map(variant.transform),
+            mustBeNumbers: dir.mustBeNumbers.map(variant.transform),
+            mustBeUnknowns: dir.mustBeUnknowns.map(variant.transform),
+            toMarkSafe: dir.toMarkSafe.map(variant.transform),
+            cantBeFlagged: dir.cantBeFlagged.map(variant.transform),
+        }));
+    };
+
+    for (const baseDir of directions) {
+        const allVariants = generateVariants(baseDir);
+        for (const dir of allVariants) {
+            if (
+                dir.pattern.every(([dx, dy]) => get(dx, dy)?.state === 1) && // check if pattern cells are 1
+                dir.mustBeNumbers.every(([dx, dy]) => isNumber(get(dx, dy))) && // check if cells are numbers (0-8) (opened and not flagged, or wall)
+                dir.mustBeUnknowns.every(([dx, dy]) => isUnknown(get(dx, dy))) && // check if cells are unknown (Unopened)
+                dir.cantBeFlagged.every(([dx, dy]) => get(dx, dy)?.state !== 'F') // check if cells are not flagged (opened and safe, unopened, or wall)
+            ) {
+                let progress = false;
+                for (const [dx, dy] of dir.toMarkSafe) {
+                    if (addSafe(get(dx, dy))) progress = true;
+                }
+                if (progress) console.log("checking at", x, y, "direction:", dir.name);
+                return progress;
             }
-            if (progress) console.log("checking at", x, y, "direction:", dir.name);
-            return progress;
         }
     }
-
     return false;
 }
 
@@ -344,7 +348,7 @@ function solveMinesweeper(grid, minesLeft) {
                 // ####################################################
                 // TODO: check for errors that the user might have made
                 // ####################################################
-                if (applyBasicLogic(grid, cell, neighbors, safeCells, mineCells)) progress = true;
+                if (applyBasicLogic(grid, cell, x, y, neighbors, safeCells, mineCells)) progress = true;
                 if (progress == false) {
                     if (applyPatternLogic(grid, x, y, safeCells, mineCells)) progress = true;
                 }

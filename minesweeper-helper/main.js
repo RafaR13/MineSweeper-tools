@@ -109,6 +109,16 @@ function getNeighbors(grid, x, y) {
     return neighbors;
 }
 
+function clearConstraints(grid, x, y) {
+    // Clear constraints for the cell at (x, y)
+    const neighbors = getNeighbors(grid, x, y);
+    for (const neighbor of neighbors) {
+        if (neighbor.constraints) {
+            neighbor.constraints = neighbor.constraints.filter(c => c.origin.x !== x || c.origin.y !== y);
+        }
+    }
+}
+
 function applyBasicLogic(grid, cell, neighbors, safeCells, mineCells) {
     // Basic Logic:
     // Square with number n has already n adjacent flags --> remaining adjacent cells are safe
@@ -125,6 +135,7 @@ function applyBasicLogic(grid, cell, neighbors, safeCells, mineCells) {
             mineCells.push(c);
             grid[c.y][c.x] = { ...c, state: 'F' };
         });
+        clearConstraints(grid, cell.x, cell.y);
         return true;
     } else if (minesLeft === 0) {
         safeCells.push(cell);
@@ -132,10 +143,15 @@ function applyBasicLogic(grid, cell, neighbors, safeCells, mineCells) {
         unopened.forEach(c => {
             grid[c.y][c.x] = { ...c, state: 'S' };
         });
+        clearConstraints(grid, cell.x, cell.y);
         return true;
 
     }
     return false;
+}
+
+function checkConstraints(grid, x, y, safeCells, mineCells) {
+    // Check constraints for the cell at (x, y)
 }
 
 function applyPatternLogic(grid, x, y, safeCells, mineCells) {
@@ -424,9 +440,37 @@ function readBoard() {
             continue;
         }
 
-        grid[y][x] = { state, el: cell, reducedState: state };
+        grid[y][x] = { state, el: cell, reducedState: state, constraints: [] };
     }
+    const getCell = (x, y) => (grid[y] && grid[y][x]) || null;
+    for (let y = 0; y <= maxY; y++) {
+        for (let x = 0; x <= maxX; x++) {
+            const cell = getCell(x, y);
+            if (!cell || typeof cell.state !== 'number' || cell.state === 0) continue;
 
+            const neighbors = getNeighbors(grid, x, y);
+            const flagged = neighbors.filter(n => n.state === 'F');
+            neighbors = neighbors.filter(n => n.state === 'U'); // keep only unknown neighbors
+
+            const minesLeft = cell.state - flagged.length;
+            if (minesLeft <= 0 || neighbors.length === 0) continue;
+
+            const constraint = {
+                origin: { x, y },
+                count: minesLeft,
+                among: neighbors.length
+                /*neighbors.map(n => {
+                   const nx = parseInt(n.el.dataset.x, 10);
+                   const ny = parseInt(n.el.dataset.y, 10);
+                   return { x: nx, y: ny };
+               })*/
+            };
+
+            for (const n of neighbors) {
+                n.constraints.push(constraint);
+            }
+        }
+    }
     return grid;
 }
 

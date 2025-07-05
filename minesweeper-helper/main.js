@@ -4,9 +4,11 @@ let previouslyHighlighted = [];
 
 function runHelper() {
     clearHighlights();
-    const grid = readBoard();
+    const safeCells = [];
+    const mineCells = [];
+    const grid = readBoard(safeCells, mineCells);
     const minesLeft = getMinesLeft();
-    const { safeCells, mineCells } = solveMinesweeper(grid, minesLeft);
+    solveMinesweeper(grid, minesLeft, safeCells, mineCells);
     highlightCells(safeCells, 'lime');
     highlightCells(mineCells, 'red');
 }
@@ -119,6 +121,92 @@ function clearConstraints(grid, x, y) {
     }
 }
 
+function updateConstraints(grid, x, y, safeCells, mineCells) {
+    // check the state of the cell at (x,y), and check which constraints if affects and update them
+    const cell = getCell(grid, x, y);
+    if (!cell || typeof cell.state !== 'number' || cell.state !== 'F') return;
+    for (const constraint of cell.constraints) {
+        generateConstraints(grid, constraint.origin.x, constraint.origin.y, safeCells, mineCells);
+    }
+}
+
+function generateConstraints(grid, x, y, safeCells, mineCells) {
+    const cell = getCell(grid, x, y);
+    if (!cell || typeof cell.state !== 'number' || cell.state === 0) return;
+
+    let neighbors = getNeighbors(grid, x, y);
+    const flagged = neighbors.filter(n => n.state === 'F');
+    neighbors = neighbors.filter(n => n.state === 'U'); // keep only unknown neighbors
+
+    const minesLeft = cell.state - flagged.length;
+    if (minesLeft <= 0 || neighbors.length === 0) return;
+
+    let constraint = {
+        origin: { x, y },
+        count: minesLeft,
+        among: neighbors.length,
+        cells: neighbors.map(n => ({ x: n.x, y: n.y }))
+    };
+
+    // check if a more limiting constraint already exists
+    const existingConstraints = neighbors.flatMap(n => n.constraints || []);
+    for (const existing of existingConstraints) {
+        // check if there is already a constraint with same among, count and cells
+
+        if (existing.among == constraint.among && existing.count === constraint.count &&
+            existing.cells.every(c => constraint.cells.some(nc => nc.x === c.x && nc.y === c.y))
+        ) { return; }
+        // check if existing constraint has a smaller "among" value. if so, we can make our constraint smaller
+        if (existing.among < constraint.among) {
+            // check if all cells in the existing constraint are also in the new constraint
+            const existingCellsSet = new Set(existing.cells.map(c => `${c.x},${c.y}`));
+            const newCellsSet = new Set(constraint.cells.map(c => `${c.x},${c.y}`));
+            if ([...existingCellsSet].every(k => newCellsSet.has(k))) {
+                // If the existing constraint is a subset of the new constraint, we can replace it
+                constraint.among = constraint.among - (existing.among);
+                constraint.count = constraint.count - (existing.count);
+                constraint.cells = constraint.cells.filter(c => !existingCellsSet.has(`${c.x},${c.y}`));
+            }
+        }
+    }
+
+    if (constraint.count == 0 && constraint.among > 0) {
+        // all cells are safe
+        for (const c of constraint.cells) {
+            grid[c.y][c.x] = { ...c, state: 'S' };
+            safeCells.push(neighbors.find(n => n.x === c.x && n.y === c.y));
+            updateConstraints(grid, c.x, c.y, safeCells, mineCells);
+        }
+        return;
+    } else if (constraint.among < 0 || constraint.count < 0) {
+        return; // i think never happens
+    } else if (constraint.count == constraint.among) {
+        // all cells are mines
+        for (const c of constraint.cells) {
+            grid[c.y][c.x] = { ...c, state: 'F' };
+            mineCells.push(neighbors.find(n => n.x === c.x && n.y === c.y));
+            updateConstraints(grid, c.x, c.y, safeCells, mineCells);
+        }
+        return;
+    }
+
+    for (const n of neighbors) {
+        // check if this neighbor belongs to the constraint
+        if (!constraint.cells.some(c => c.x === n.x && c.y === n.y)) { continue; }
+        // Check if the constraint already exists
+        const exists = n.constraints.some(c => c.origin.x === x && c.origin.y === y);
+        if (!exists) {
+            n.constraints.push(constraint);
+        } else {
+            // Update the existing constraint
+            const existingConstraint = n.constraints.find(c => c.origin.x === x && c.origin.y === y);
+            existingConstraint.count = constraint.count;
+            existingConstraint.among = constraint.among;
+            existingConstraint.cells = constraint.cells;
+        }
+    }
+}
+
 function applyBasicLogic(grid, cell, neighbors, safeCells, mineCells) {
     // Basic Logic:
     // Square with number n has already n adjacent flags --> remaining adjacent cells are safe
@@ -134,6 +222,7 @@ function applyBasicLogic(grid, cell, neighbors, safeCells, mineCells) {
         unopened.forEach(c => {
             mineCells.push(c);
             grid[c.y][c.x] = { ...c, state: 'F' };
+            updateConstraints(grid, c.x, c.y);
         });
         clearConstraints(grid, cell.x, cell.y);
         return true;
@@ -142,6 +231,7 @@ function applyBasicLogic(grid, cell, neighbors, safeCells, mineCells) {
 
         unopened.forEach(c => {
             grid[c.y][c.x] = { ...c, state: 'S' };
+            updateConstraints(grid, c.x, c.y);
         });
         clearConstraints(grid, cell.x, cell.y);
         return true;
@@ -151,8 +241,246 @@ function applyBasicLogic(grid, cell, neighbors, safeCells, mineCells) {
 }
 
 function checkConstraints(grid, x, y, safeCells, mineCells) {
-    // Check constraints for the cell at (x, y)
+    const cell = getCell(grid, x, y);
+    if (!cell || typeof cell.state !== 'number' || cell.state === 0) return false;
+
+    const neighbors = getNeighbors(grid, x, y);
+    const unopened = neighbors.filter(n => n.state === 'U');
+
+    // Collect unique constraints from unopened neighbors
+    const constraintMap = new Map();
+    for (const n of unopened) {
+        if (!n.constraints) continue;
+        for (const c of n.constraints) {
+            const key = `${c.origin.x},${c.origin.y}`;
+            constraintMap.set(key, c); // latest version of constraint
+        }
+    }
+
+    const constraints = [...constraintMap.values()];
+    let progress = false;
+
+    for (let i = 0; i < constraints.length; i++) {
+        for (let j = 0; j < constraints.length; j++) {
+            if (i === j) continue;
+
+            const A = constraints[i];
+            const B = constraints[j];
+            const aSet = new Set(A.cells.map(c => `${c.x},${c.y}`));
+            const bSet = new Set(B.cells.map(c => `${c.x},${c.y}`));
+
+            const isBSubsetOfA = [...bSet].every(k => aSet.has(k));
+            const isASubsetOfB = [...aSet].every(k => bSet.has(k));
+            if (!isBSubsetOfA && !isASubsetOfB) continue;
+
+            const superset = isBSubsetOfA ? A : B;
+            const subset = isBSubsetOfA ? B : A;
+            const superSetSet = new Set(superset.cells.map(c => `${c.x},${c.y}`));
+            const subSetSet = new Set(subset.cells.map(c => `${c.x},${c.y}`));
+
+            const remainingKeys = [...superSetSet].filter(k => !subSetSet.has(k));
+            const remainingMines = superset.count - subset.count;
+
+            const remainingCells = remainingKeys.map(k => {
+                const [sx, sy] = k.split(',').map(Number);
+                return getCell(grid, sx, sy);
+            }).filter(Boolean);
+
+            console.log(`Checking constraints at (${x}, ${y}):`)
+            console.log(`  Superset: ${superset.count} mines among ${superset.among} cells`);
+            console.log(`  Subset: ${subset.count} mines among ${subset.among} cells`);
+            console.log(remainingCells);
+
+            if (remainingMines === 0) {
+                for (const c of remainingCells) {
+                    if (c.state === 'U') {
+                        safeCells.push(c);
+                        grid[c.y][c.x] = { ...c, state: 'S' };
+                        updateConstraints(grid, c.x, c.y);
+                        progress = true;
+                    }
+                }
+            } else if (remainingMines === remainingCells.length) {
+                for (const c of remainingCells) {
+                    if (c.state === 'U') {
+                        mineCells.push(c);
+                        grid[c.y][c.x] = { ...c, state: 'F' };
+                        updateConstraints(grid, c.x, c.y);
+                        progress = true;
+                    }
+                }
+            }
+        }
+    }
+
+    return progress;
 }
+
+/*function checkConstraints(grid, x, y, safeCells, mineCells) {
+    const cell = getCell(grid, x, y);
+    if (!cell || typeof cell.state !== 'number' || cell.state === 0) return false;
+
+    // get neighbors and unopened neighbors
+    const neighbors = getNeighbors(grid, x, y);
+    const unopened = neighbors.filter(n => n.state === 'U');
+
+    // collect unique constraints and count how many times each appears
+    const constraintMap = new Map();
+    for (const n of unopened) {
+        if (!n.constraints) continue;
+        for (const c of n.constraints) {
+            const key = `${c.origin.x},${c.origin.y}`;
+            if (!constraintMap.has(key)) {
+                constraintMap.set(key, { ...c, count: 1 });
+            } else {
+                constraintMap.get(key).count++;
+            }
+        }
+    }
+
+    // check if any constraint reveals information
+    const constraints = [...constraintMap.values()];
+    let progress = false;
+
+}*/
+
+function getCell(grid, x, y) {
+    if (y < 0 || y >= grid.length || x < 0 || x >= grid[0].length) return null;
+    return grid[y][x];
+}
+
+function solveMinesweeper(grid, minesLeft, safeCells = [], mineCells = []) {
+    let progress = true;
+
+    while (progress) {
+        progress = false;
+
+        for (let y = 0; y < grid.length; y++) {
+            for (let x = 0; x < grid[y].length; x++) {
+                const cell = grid[y][x];
+                if (!cell || typeof cell.state !== 'number') continue;
+                const neighbors = getNeighbors(grid, x, y);
+                // ####################################################
+                // TODO: check for errors that the user might have made
+                // ####################################################
+                if (applyBasicLogic(grid, cell, neighbors, safeCells, mineCells)) {
+                    progress = true;
+                }
+                /*if (checkConstraints(grid, x, y, safeCells, mineCells)) {
+                    progress = true;
+                }*/
+            }
+        }
+    }
+
+    return { safeCells, mineCells };
+}
+
+function readBoard(safeCells, mineCells) {
+    const cells = Array.from(document.querySelectorAll('.cell'));
+    let maxX = 0, maxY = 0;
+
+    // First pass: get dimensions
+    for (const cell of cells) {
+        const x = parseInt(cell.dataset.x, 10);
+        const y = parseInt(cell.dataset.y, 10);
+        if (!Number.isNaN(x) && !Number.isNaN(y)) {
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+        }
+    }
+
+    // Create 2D array
+    const grid = Array.from({ length: maxY + 1 }, () =>
+        Array.from({ length: maxX + 1 }, () => null)
+    );
+
+    // Second pass: fill in cell states
+    for (const cell of cells) {
+        const x = parseInt(cell.dataset.x, 10);
+        const y = parseInt(cell.dataset.y, 10);
+        if (Number.isNaN(x) || Number.isNaN(y)) continue;
+
+        const classList = cell.classList;
+        let state;
+
+        if (classList.contains('hdd_closed')) {
+            state = classList.contains('hdd_flag') ? 'F' : 'U';
+        } else if (classList.contains('hdd_opened')) {
+            const typeClass = [...classList].find(c => c.startsWith('hdd_type'));
+            const type = parseInt(typeClass?.replace('hdd_type', ''), 10);
+            state = type === 11 ? 'M' : type;
+        } else {
+            state = '?';
+        }
+
+        if (
+            state === '?' ||
+            Number.isNaN(state) ||
+            (typeof state === 'number' && (state < 0 || state > 8))
+        ) {
+            console.warn(`Skipping invalid cell at (${x}, ${y}):`, classList);
+            continue;
+        }
+
+        grid[y][x] = { state, el: cell, constraints: [] };
+    }
+    for (let y = 0; y <= maxY; y++) {
+        for (let x = 0; x <= maxX; x++) {
+            generateConstraints(grid, x, y, safeCells, mineCells);
+        }
+    }
+    return grid;
+}
+
+function getDigitFromClass(el) {
+    if (!el) return 0;
+    const match = [...el.classList].find(c => c.startsWith('hdd_top-area-num'));
+    return match ? parseInt(match.replace('hdd_top-area-num', ''), 10) : 0;
+}
+
+function getMinesLeft() {
+    const h = getDigitFromClass(document.getElementById('top_area_mines_100'));
+    const t = getDigitFromClass(document.getElementById('top_area_mines_10'));
+    const u = getDigitFromClass(document.getElementById('top_area_mines_1'));
+    return h * 100 + t * 10 + u;
+}
+
+function highlightCells(cells, color) {
+    for (const { el } of cells) {
+        if (!el) continue;
+        el.style.outline = `2px solid ${color}`;
+        el.style.outlineOffset = '-2px';
+        previouslyHighlighted.push(el);
+    }
+}
+
+function clearHighlights() {
+    for (const el of previouslyHighlighted) {
+        el.style.outline = '';
+        el.style.outlineOffset = '';
+    }
+    previouslyHighlighted = [];
+}
+
+function styleHelperButton(btn, topOffsetPx) {
+    btn.style.position = 'fixed';
+    btn.style.top = `${topOffsetPx}px`;
+    btn.style.right = '20px';
+    btn.style.zIndex = 9999;
+    btn.style.padding = '10px 15px';
+    btn.style.background = '#222';
+    btn.style.color = '#fff';
+    btn.style.border = '1px solid #444';
+    btn.style.borderRadius = '5px';
+    btn.style.fontSize = '14px';
+    btn.style.cursor = 'pointer';
+}
+
+let game = null;
+waitForBoardThenEnableUI();
+
+// #####################################################################
 
 function applyPatternLogic(grid, x, y, safeCells, mineCells) {
     let progress = false;
@@ -174,11 +502,6 @@ function applyPatternLogic(grid, x, y, safeCells, mineCells) {
     //if (checkAll1221Patterns(grid, x, y, mineCells, safeCells)) progress = true;
     if (checkAll12Patterns(grid, x, y, mineCells)) progress = true;
     return progress;
-}
-
-function getCell(grid, x, y) {
-    if (y < 0 || y >= grid.length || x < 0 || x >= grid[0].length) return null;
-    return grid[y][x];
 }
 
 function checkAll11Patterns(grid, x, y, safeCells) {
@@ -361,162 +684,7 @@ function checkAll12Patterns(grid, x, y, mineCells) {
     return false;
 }
 
-/*function checkAll121Patterns(grid, x, y, mineCells, safeCells) { return false; }
-function checkAll1221Patterns(grid, x, y, mineCells, safeCells) { return false; }*/
-
 function checkHoles(grid, x, y, safeCells) { }
 
-function solveMinesweeper(grid, minesLeft) {
-    const safeCells = [];
-    const mineCells = [];
-    let progress = true;
-
-    while (progress) {
-        progress = false;
-
-        for (let y = 0; y < grid.length; y++) {
-            for (let x = 0; x < grid[y].length; x++) {
-                const cell = grid[y][x];
-                if (!cell || typeof cell.state !== 'number') continue;
-                const neighbors = getNeighbors(grid, x, y);
-                // ####################################################
-                // TODO: check for errors that the user might have made
-                // ####################################################
-                //if (applyBasicLogic(grid, cell, neighbors, safeCells, mineCells)) progress = true;
-                //if (progress == false) {
-                if (applyPatternLogic(grid, x, y, safeCells, mineCells)) progress = true;
-                //}
-            }
-        }
-    }
-
-    return { safeCells, mineCells };
-}
-
-function readBoard() {
-    const cells = Array.from(document.querySelectorAll('.cell'));
-    let maxX = 0, maxY = 0;
-
-    // First pass: get dimensions
-    for (const cell of cells) {
-        const x = parseInt(cell.dataset.x, 10);
-        const y = parseInt(cell.dataset.y, 10);
-        if (!Number.isNaN(x) && !Number.isNaN(y)) {
-            maxX = Math.max(maxX, x);
-            maxY = Math.max(maxY, y);
-        }
-    }
-
-    // Create 2D array
-    const grid = Array.from({ length: maxY + 1 }, () =>
-        Array.from({ length: maxX + 1 }, () => null)
-    );
-
-    // Second pass: fill in cell states
-    for (const cell of cells) {
-        const x = parseInt(cell.dataset.x, 10);
-        const y = parseInt(cell.dataset.y, 10);
-        if (Number.isNaN(x) || Number.isNaN(y)) continue;
-
-        const classList = cell.classList;
-        let state;
-
-        if (classList.contains('hdd_closed')) {
-            state = classList.contains('hdd_flag') ? 'F' : 'U';
-        } else if (classList.contains('hdd_opened')) {
-            const typeClass = [...classList].find(c => c.startsWith('hdd_type'));
-            const type = parseInt(typeClass?.replace('hdd_type', ''), 10);
-            state = type === 11 ? 'M' : type;
-        } else {
-            state = '?';
-        }
-
-        if (
-            state === '?' ||
-            Number.isNaN(state) ||
-            (typeof state === 'number' && (state < 0 || state > 8))
-        ) {
-            console.warn(`Skipping invalid cell at (${x}, ${y}):`, classList);
-            continue;
-        }
-
-        grid[y][x] = { state, el: cell, reducedState: state, constraints: [] };
-    }
-    const getCell = (x, y) => (grid[y] && grid[y][x]) || null;
-    for (let y = 0; y <= maxY; y++) {
-        for (let x = 0; x <= maxX; x++) {
-            const cell = getCell(x, y);
-            if (!cell || typeof cell.state !== 'number' || cell.state === 0) continue;
-
-            const neighbors = getNeighbors(grid, x, y);
-            const flagged = neighbors.filter(n => n.state === 'F');
-            neighbors = neighbors.filter(n => n.state === 'U'); // keep only unknown neighbors
-
-            const minesLeft = cell.state - flagged.length;
-            if (minesLeft <= 0 || neighbors.length === 0) continue;
-
-            const constraint = {
-                origin: { x, y },
-                count: minesLeft,
-                among: neighbors.length
-                /*neighbors.map(n => {
-                   const nx = parseInt(n.el.dataset.x, 10);
-                   const ny = parseInt(n.el.dataset.y, 10);
-                   return { x: nx, y: ny };
-               })*/
-            };
-
-            for (const n of neighbors) {
-                n.constraints.push(constraint);
-            }
-        }
-    }
-    return grid;
-}
-
-function getDigitFromClass(el) {
-    if (!el) return 0;
-    const match = [...el.classList].find(c => c.startsWith('hdd_top-area-num'));
-    return match ? parseInt(match.replace('hdd_top-area-num', ''), 10) : 0;
-}
-
-function getMinesLeft() {
-    const h = getDigitFromClass(document.getElementById('top_area_mines_100'));
-    const t = getDigitFromClass(document.getElementById('top_area_mines_10'));
-    const u = getDigitFromClass(document.getElementById('top_area_mines_1'));
-    return h * 100 + t * 10 + u;
-}
-
-function highlightCells(cells, color) {
-    for (const { el } of cells) {
-        if (!el) continue;
-        el.style.outline = `2px solid ${color}`;
-        el.style.outlineOffset = '-2px';
-        previouslyHighlighted.push(el);
-    }
-}
-
-function clearHighlights() {
-    for (const el of previouslyHighlighted) {
-        el.style.outline = '';
-        el.style.outlineOffset = '';
-    }
-    previouslyHighlighted = [];
-}
-
-function styleHelperButton(btn, topOffsetPx) {
-    btn.style.position = 'fixed';
-    btn.style.top = `${topOffsetPx}px`;
-    btn.style.right = '20px';
-    btn.style.zIndex = 9999;
-    btn.style.padding = '10px 15px';
-    btn.style.background = '#222';
-    btn.style.color = '#fff';
-    btn.style.border = '1px solid #444';
-    btn.style.borderRadius = '5px';
-    btn.style.fontSize = '14px';
-    btn.style.cursor = 'pointer';
-}
-
-let game = null;
-waitForBoardThenEnableUI();
+/*function checkAll121Patterns(grid, x, y, mineCells, safeCells) { return false; }
+function checkAll1221Patterns(grid, x, y, mineCells, safeCells) { return false; }*/

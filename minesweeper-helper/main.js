@@ -1,18 +1,34 @@
 let observer = null; // moved outside so we can control it from anywhere
 let observerActive = false;
 let previouslyHighlighted = [];
+let autoplayActive = false;
+let autoplayInterval = null;
 
-function runHelper() {
-    clearHighlights();
-    const safeCells = [];
-    const mineCells = [];
-    const grid = readBoard(safeCells, mineCells);
-    const minesLeft = getMinesLeft();
-    solveMinesweeper(grid, minesLeft, safeCells, mineCells);
-    console.log(grid);
-    highlightCells(safeCells, 'lime');
-    highlightCells(mineCells, 'red');
+
+function showMessage(text) {
+    let msg = document.getElementById('helper-msg');
+    if (!msg) {
+        msg = document.createElement('div');
+        msg.id = 'helper-msg';
+        msg.style.position = 'fixed';
+        msg.style.bottom = '20px';
+        msg.style.right = '20px';
+        msg.style.padding = '10px 15px';
+        msg.style.background = '#333';
+        msg.style.color = '#fff';
+        msg.style.fontSize = '14px';
+        msg.style.borderRadius = '5px';
+        msg.style.zIndex = 9999;
+        document.body.appendChild(msg);
+    }
+    msg.textContent = text;
 }
+
+function hideMessage() {
+    const msg = document.getElementById('helper-msg');
+    if (msg) msg.remove();
+}
+
 
 function startObserving() {
     if (observerActive) return;
@@ -41,19 +57,6 @@ function stopObserving() {
     observerActive = false;
 }
 
-function styleHelperButton(btn, topOffsetPx) {
-    btn.style.position = 'fixed';
-    btn.style.top = `${topOffsetPx}px`;
-    btn.style.right = '20px';
-    btn.style.zIndex = 9999;
-    btn.style.padding = '10px 15px';
-    btn.style.background = '#222';
-    btn.style.color = '#fff';
-    btn.style.border = '1px solid #444';
-    btn.style.borderRadius = '5px';
-    btn.style.fontSize = '14px';
-    btn.style.cursor = 'pointer';
-}
 
 function createHelperButtons() {
     // 🔍 Suggest Once
@@ -83,6 +86,103 @@ function createHelperButtons() {
         }
     };
     document.body.appendChild(autoBtn);
+
+    // auto Play Button
+    const autoplayBtn = document.createElement('button');
+    autoplayBtn.textContent = '🔁 Auto Play: OFF';
+    styleHelperButton(autoplayBtn, 100);
+    autoplayBtn.onclick = () => {
+        if (autoplayActive) {
+            stopAutoplay();
+            autoplayBtn.textContent = '🔁 Auto Play: OFF';
+        } else {
+            autoplayActive = true;
+            autoplayBtn.textContent = '🔁 Auto Play: ON';
+            hideMessage();
+
+            const step = () => {
+                if (!autoplayActive) return;
+                const changed = autoplayStep();
+                if (!changed) {
+                    showMessage("✅ No more safe moves. Autoplay stopped.");
+                    stopAutoplay();
+                    autoplayBtn.textContent = '🔁 Auto Play: OFF';
+                    return;
+                }
+                setTimeout(step, 100); // delay between steps
+            };
+
+            step();
+        }
+    };
+    document.body.appendChild(autoplayBtn);
+}
+
+function styleHelperButton(btn, topOffsetPx) {
+    btn.style.position = 'fixed';
+    btn.style.top = `${topOffsetPx}px`;
+    btn.style.right = '20px';
+    btn.style.zIndex = 9999;
+    btn.style.padding = '10px 15px';
+    btn.style.background = '#222';
+    btn.style.color = '#fff';
+    btn.style.border = '1px solid #444';
+    btn.style.borderRadius = '5px';
+    btn.style.fontSize = '14px';
+    btn.style.cursor = 'pointer';
+}
+
+
+function stopAutoplay() {
+    autoplayActive = false;
+    if (autoplayInterval) {
+        clearInterval(autoplayInterval);
+        autoplayInterval = null;
+    }
+}
+
+function autoplayStep() {
+    const safeCells = [];
+    const mineCells = [];
+    const grid = readBoard(safeCells, mineCells);
+
+    if (!grid) {
+        showMessage("💥 A mine is present. Autoplay stopped.");
+        return false;
+    }
+
+    const minesLeft = getMinesLeft();
+    solveMinesweeper(grid, minesLeft, safeCells, mineCells);
+    console.log(safeCells, mineCells);
+
+    let actionsTaken = false;
+
+
+    for (const cell of mineCells) {
+        if (cell.state === 'U' || cell.state === 'F') {
+            triggerNativeClick(cell.el, 2); // right-click to flag
+            actionsTaken = true;
+        }
+    }
+    for (const cell of safeCells) {
+        if (cell.state === 'U' || cell.state === 'S' || typeof cell.state === 'number') {
+            triggerNativeClick(cell.el, 0);
+            actionsTaken = true;
+        }
+    }
+
+
+    return actionsTaken;
+}
+
+function triggerNativeClick(el, number) {
+    const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: number });
+    const up = new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: number });
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true, button: number });
+
+    el.dispatchEvent(down);
+    el.dispatchEvent(up);
+    el.dispatchEvent(click);
 }
 
 function waitForBoardThenEnableUI() {
@@ -421,34 +521,6 @@ function checkConstraints(grid, x, y, safeCells, mineCells) {
     return progress;
 }
 
-/*function checkConstraints(grid, x, y, safeCells, mineCells) {
-    const cell = getCell(grid, x, y);
-    if (!cell || typeof cell.state !== 'number' || cell.state === 0) return false;
- 
-    // get neighbors and unopened neighbors
-    const neighbors = getNeighbors(grid, x, y);
-    const unopened = neighbors.filter(n => n.state === 'U');
- 
-    // collect unique constraints and count how many times each appears
-    const constraintMap = new Map();
-    for (const n of unopened) {
-        if (!n.constraints) continue;
-        for (const c of n.constraints) {
-            const key = `${c.origin.x},${c.origin.y}`;
-            if (!constraintMap.has(key)) {
-                constraintMap.set(key, { ...c, count: 1 });
-            } else {
-                constraintMap.get(key).count++;
-            }
-        }
-    }
- 
-    // check if any constraint reveals information
-    const constraints = [...constraintMap.values()];
-    let progress = false;
- 
-}*/
-
 function getCell(grid, x, y) {
     if (y < 0 || y >= grid.length || x < 0 || x >= grid[0].length) return null;
     return grid[y][x];
@@ -524,8 +596,7 @@ function readBoard(safeCells, mineCells) {
             Number.isNaN(state) ||
             (typeof state === 'number' && (state < 0 || state > 8))
         ) {
-            console.warn(`Skipping invalid cell at (${x}, ${y}):`, classList);
-            continue;
+            return null;
         }
 
         grid[y][x] = { state, el: cell, constraints: [] };
@@ -568,228 +639,23 @@ function clearHighlights() {
     previouslyHighlighted = [];
 }
 
-function styleHelperButton(btn, topOffsetPx) {
-    btn.style.position = 'fixed';
-    btn.style.top = `${topOffsetPx}px`;
-    btn.style.right = '20px';
-    btn.style.zIndex = 9999;
-    btn.style.padding = '10px 15px';
-    btn.style.background = '#222';
-    btn.style.color = '#fff';
-    btn.style.border = '1px solid #444';
-    btn.style.borderRadius = '5px';
-    btn.style.fontSize = '14px';
-    btn.style.cursor = 'pointer';
+function runHelper() {
+    clearHighlights();
+    const safeCells = [];
+    const mineCells = [];
+    const grid = readBoard(safeCells, mineCells);
+    if (!grid) {
+        console.warn("A mine was clicked. Can't analyze the board.");
+        showMessage("A mine is present. Helper paused.");
+        return;
+    }
+    const minesLeft = getMinesLeft();
+    solveMinesweeper(grid, minesLeft, safeCells, mineCells);
+    console.log(grid);
+    highlightCells(safeCells, 'lime');
+    highlightCells(mineCells, 'red');
+    hideMessage();
 }
 
 let game = null;
 waitForBoardThenEnableUI();
-
-// #####################################################################
-
-function applyPatternLogic(grid, x, y, safeCells, mineCells) {
-    let progress = false;
-    // Pattern Logic:
-    // Basic patterns (1-1, 1-2, 1-2-1, 1-2-2-1)
-    // Reductions turning patterns into basic patterns like above
-    // Holes
-    // Triangles
-    // High complexity patterns (1-3-1 corner, 2-2-2 corner, 1>2<1, T-pattern, Dependency chains)
-    // Last turns (Mine counting, combinations)
-
-    // #########################################################################################
-    // check 1-1 pattern
-    //if (checkAll11Patterns(grid, x, y, safeCells)) progress = true;
-    //if (progress) {
-    //if (applyBasicLogic(grid, grid[y][x], getNeighbors(grid, x, y), safeCells, mineCells)) progress = true;
-    //}
-    //if (checkAll121Patterns(grid, x, y, mineCells, safeCells)) progress = true;
-    //if (checkAll1221Patterns(grid, x, y, mineCells, safeCells)) progress = true;
-    if (checkAll12Patterns(grid, x, y, mineCells)) progress = true;
-    return progress;
-}
-
-function checkAll11Patterns(grid, x, y, safeCells) {
-    const get = (dx, dy) => getCell(grid, x + dx, y + dy);
-    const isNumber = (c) => !c || typeof c.state === 'number' || c.state === 'S';
-    const isUnknown = (c) => c?.state === 'U';
-
-    const addSafe = (cell) => {
-        if (isUnknown(cell)) {
-            safeCells.push(cell);
-            cell.state = 'S';
-            return true;
-        }
-        return false;
-    };
-
-    const directions = [
-        {
-            name: "Horizontal →",
-            pattern: [[0, 0], [1, 0]],
-            mustBeNumbers: [[-1, 0], [-1, -1], [-1, 1], [0, 1], [1, 1]],
-            mustBeUnknowns: [[0, -1], [1, -1], [2, -1]],
-            toMarkSafe: [[2, -1], [2, 0], [2, 1]],
-            cantBeFlagged: [[2, 0], [2, 1]],
-        },
-        {
-            name: "Vertical ↓",
-            pattern: [[0, 0], [0, 1]],
-            mustBeNumbers: [[0, -1], [-1, -1], [1, -1], [-1, 0], [-1, 1]],
-            mustBeUnknowns: [[1, 0], [1, 1], [1, 2]],
-            toMarkSafe: [[1, 2], [0, 2], [-1, 2]],
-            cantBeFlagged: [[0, 2], [-1, 2]]
-        }
-    ];
-
-    const generateVariants = (dir) => {
-        const invertX = ([dx, dy]) => [-dx, dy];
-        const invertY = ([dx, dy]) => [dx, -dy];
-
-        const variants = [
-            { ...dir, name: dir.name + "", transform: (pt) => pt }, // original
-            { ...dir, name: dir.name + " (Flip Y)", transform: invertY },
-            { ...dir, name: dir.name + " (Flip X)", transform: invertX },
-        ];
-
-        return variants.map(variant => ({
-            name: variant.name,
-            pattern: dir.pattern.map(variant.transform),
-            mustBeNumbers: dir.mustBeNumbers.map(variant.transform),
-            mustBeUnknowns: dir.mustBeUnknowns.map(variant.transform),
-            toMarkSafe: dir.toMarkSafe.map(variant.transform),
-            cantBeFlagged: dir.cantBeFlagged.map(variant.transform),
-        }));
-    };
-
-    for (const baseDir of directions) {
-        const allVariants = generateVariants(baseDir);
-        for (const dir of allVariants) {
-            if (
-                dir.pattern.every(([dx, dy]) => get(dx, dy)?.state === 1) && // check if pattern cells are 1
-                dir.mustBeNumbers.every(([dx, dy]) => isNumber(get(dx, dy))) && // check if cells are numbers (0-8) (opened and not flagged, or wall)
-                dir.mustBeUnknowns.every(([dx, dy]) => isUnknown(get(dx, dy))) && // check if cells are unknown (Unopened)
-                dir.cantBeFlagged.every(([dx, dy]) => get(dx, dy)?.state !== 'F') // check if cells are not flagged (opened and safe, unopened, or wall)
-            ) {
-                let progress = false;
-                for (const [dx, dy] of dir.toMarkSafe) {
-                    if (addSafe(get(dx, dy))) progress = true;
-                }
-                if (progress) console.log("checking at", x, y, "direction:", dir.name);
-                return progress;
-            }
-        }
-    }
-    return false;
-}
-
-function checkAll12Patterns(grid, x, y, mineCells) {
-    const get = (dx, dy) => getCell(grid, x + dx, y + dy);
-    const isNumber = (c) => !c || typeof c.state === 'number' || c.state === 'S';
-    const isUnknown = (c) => c?.state === 'U';
-
-    const addMine = (cell) => {
-        if (isUnknown(cell)) {
-            mineCells.push(cell);
-            cell.state = 'F';
-            return true;
-        }
-        return false;
-    };
-
-    const directions = [
-        {
-            name: "Horizontal →",
-            pattern: [[0, 0], [1, 0]],
-            mustBeNumbers: [[0, 1], [1, 1]],
-            mustBeUnknowns: [[0, -1], [1, -1], [2, -1]],
-            toFlag: [[2, -1]],
-            toFlag3and4: [[2, 0], [2, 1]],
-            cantBeFlagged: [[-1, -1], [-1, 0], [-1, 1]]
-        },
-        {
-            name: "Vertical ↓",
-            pattern: [[0, 0], [0, 1]],
-            mustBeNumbers: [[1, 0], [1, 1]],
-            mustBeUnknowns: [[-1, 0], [-1, 1], [-1, 2]],
-            toFlag: [[-1, 2]],
-            toFlag3and4: [[0, 2], [1, 2]],
-            cantBeFlagged: [[1, -1], [0, -1], [-1, -1]]
-        }
-    ];
-
-    const generateVariants = (dir) => {
-        const invertX = ([dx, dy]) => [-dx, dy];
-        const invertY = ([dx, dy]) => [dx, -dy];
-
-        const variants = [
-            { ...dir, name: dir.name + "", transform: (pt) => pt }, // original
-            { ...dir, name: dir.name + " (Flip Y)", transform: invertY },
-            { ...dir, name: dir.name + " (Flip X)", transform: invertX },
-        ];
-
-        return variants.map(variant => ({
-            name: variant.name,
-            pattern: dir.pattern.map(variant.transform),
-            mustBeNumbers: dir.mustBeNumbers.map(variant.transform),
-            mustBeUnknowns: dir.mustBeUnknowns.map(variant.transform),
-            toFlag: dir.toFlag.map(variant.transform),
-            toFlag3and4: dir.toFlag3and4.map(variant.transform),
-            cantBeFlagged: dir.cantBeFlagged.map(variant.transform)
-        }));
-    };
-
-    for (const baseDir of directions) {
-        const allVariants = generateVariants(baseDir);
-        for (const dir of allVariants) {
-            if (
-                get(dir.pattern[0][0], dir.pattern[0][1])?.state === 1 && // check if first pattern cell is 1
-                [2, 3, 4].includes(get(dir.pattern[1][0], dir.pattern[1][1])?.state) && // check if second pattern cell is 2, 3, or 4
-                dir.mustBeNumbers.every(([dx, dy]) => isNumber(get(dx, dy))) && // check if cells are numbers (0-8) (opened and not flagged, or wall)
-                dir.mustBeUnknowns.every(([dx, dy]) => isUnknown(get(dx, dy))) && // check if cells are unknown (Unopened)
-                dir.cantBeFlagged.every(([dx, dy]) => get(dx, dy)?.state !== 'F') // check if cells are not flagged (opened and safe, unopened, or wall)
-            ) {
-                // if state of second pattern cell is 2, toflag3and4 must opened and not flagged
-                if (get(dir.pattern[1][0], dir.pattern[1][1]).state === 2) {
-                    if (!dir.toFlag3and4.every(([dx, dy]) => isNumber(get(dx, dy)))) {
-                        continue;
-                    }
-                    return addMine(get(dir.toFlag[0][0], dir.toFlag[0][1]));
-                } else if (get(dir.pattern[1][0], dir.pattern[1][1]).state === 3) {
-                    // one of toflag3and3 must be unknown and the other opened and not flagged
-                    if (!(dir.toFlag3and4.some(([dx, dy]) => isUnknown(get(dx, dy))) &&
-                        dir.toFlag3and4.some(([dx, dy]) => isNumber(get(dx, dy))))) {
-                        continue;
-                    }
-                    let progress = false;
-                    if (addMine(get(dir.toFlag[0][0], dir.toFlag[0][1]))) progress = true;
-                    // add the mine to the unknown cell
-                    for (const [dx, dy] of dir.toFlag3and4) {
-                        if (isUnknown(get(dx, dy))) {
-                            if (addMine(get(dx, dy))) progress = true;
-                        }
-                    }
-                    return progress;
-                } else {
-                    // both of toflag3and4 must be unknown
-                    if (!dir.toFlag3and4.every(([dx, dy]) => isUnknown(get(dx, dy)))) {
-                        continue;
-                    }
-                    let progress = false;
-                    if (addMine(get(dir.toFlag[0][0], dir.toFlag[0][1]))) progress = true;
-                    // add the mine to the unknown cells
-                    for (const [dx, dy] of dir.toFlag3and4) {
-                        if (addMine(get(dx, dy))) progress = true;
-                    }
-                    return progress;
-                }
-            }
-        }
-    }
-    return false;
-}
-
-function checkHoles(grid, x, y, safeCells) { }
-
-/*function checkAll121Patterns(grid, x, y, mineCells, safeCells) { return false; }
-function checkAll1221Patterns(grid, x, y, mineCells, safeCells) { return false; }*/

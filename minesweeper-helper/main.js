@@ -9,6 +9,7 @@ function runHelper() {
     const grid = readBoard(safeCells, mineCells);
     const minesLeft = getMinesLeft();
     solveMinesweeper(grid, minesLeft, safeCells, mineCells);
+    console.log(grid);
     highlightCells(safeCells, 'lime');
     highlightCells(mineCells, 'red');
 }
@@ -124,87 +125,191 @@ function clearConstraints(grid, x, y) {
 function updateConstraints(grid, x, y, safeCells, mineCells) {
     // check the state of the cell at (x,y), and check which constraints if affects and update them
     const cell = getCell(grid, x, y);
-    if (!cell || typeof cell.state !== 'number' || cell.state !== 'F') return;
-    for (const constraint of cell.constraints) {
-        generateConstraints(grid, constraint.origin.x, constraint.origin.y, safeCells, mineCells);
+    if (!cell || typeof cell.state !== 'number' || cell.state !== 'F' || cell.state !== 'S') return;
+    const neighbors = getNeighbors(grid, x, y);
+    for (const n of neighbors) {
+        (n.constraints || []).forEach(c => {
+            generateConstraints(grid, c.origin.x, c.origin.y, safeCells, mineCells);
+        });
     }
+}
+
+function removeConstraint(grid, x, y, constraint) {
+    // Remove a specific constraint from the cell at (x, y)
+    const cell = getCell(grid, x, y);
+    if (!cell || !cell.constraints) return;
+    cell.constraints = cell.constraints.filter(c => c !== constraint);
+}
+
+function sameCellSet(a, b) {
+    if (a.length !== b.length) return false;
+    const aSet = new Set(a.map(c => `${c.x},${c.y}`));
+    return b.every(c => aSet.has(`${c.x},${c.y}`));
+}
+
+function constraintToString(c) {
+    return `From (${c.origin.x},${c.origin.y}): ${c.count} mines among ${c.among} cells`;
 }
 
 function generateConstraints(grid, x, y, safeCells, mineCells) {
     const cell = getCell(grid, x, y);
     if (!cell || typeof cell.state !== 'number' || cell.state === 0) return;
 
-    let neighbors = getNeighbors(grid, x, y);
+    const neighbors = getNeighbors(grid, x, y);
     const flagged = neighbors.filter(n => n.state === 'F');
-    neighbors = neighbors.filter(n => n.state === 'U'); // keep only unknown neighbors
+    const unknowns = neighbors.filter(n => n.state === 'U');
 
     const minesLeft = cell.state - flagged.length;
-    if (minesLeft <= 0 || neighbors.length === 0) return;
+    if (minesLeft <= 0 || unknowns.length === 0) return;
 
+    const newCells = unknowns.map(n => ({ x: n.x, y: n.y }));
     let constraint = {
         origin: { x, y },
         count: minesLeft,
-        among: neighbors.length,
-        cells: neighbors.map(n => ({ x: n.x, y: n.y }))
+        among: unknowns.length,
+        cells: newCells
     };
 
     // check if a more limiting constraint already exists
-    const existingConstraints = neighbors.flatMap(n => n.constraints || []);
-    for (const existing of existingConstraints) {
-        // check if there is already a constraint with same among, count and cells
+    const existingConstraints = unknowns.flatMap(n => n.constraints || []);
 
-        if (existing.among == constraint.among && existing.count === constraint.count &&
-            existing.cells.every(c => constraint.cells.some(nc => nc.x === c.x && nc.y === c.y))
-        ) { return; }
-        // check if existing constraint has a smaller "among" value. if so, we can make our constraint smaller
-        if (existing.among < constraint.among) {
-            // check if all cells in the existing constraint are also in the new constraint
-            const existingCellsSet = new Set(existing.cells.map(c => `${c.x},${c.y}`));
-            const newCellsSet = new Set(constraint.cells.map(c => `${c.x},${c.y}`));
-            if ([...existingCellsSet].every(k => newCellsSet.has(k))) {
-                // If the existing constraint is a subset of the new constraint, we can replace it
-                constraint.among = constraint.among - (existing.among);
-                constraint.count = constraint.count - (existing.count);
-                constraint.cells = constraint.cells.filter(c => !existingCellsSet.has(`${c.x},${c.y}`));
+    for (const ex of existingConstraints) {
+        if (ex.count === constraint.count &&
+            ex.among === constraint.among &&
+            sameCellSet(ex.cells, constraint.cells)) {
+            return;
+        }
+    }
+
+    for (const ex of existingConstraints) {
+        if (ex.among < constraint.among) {
+            const exSet = new Set(ex.cells.map(c => `${c.x},${c.y}`));
+            const newSet = new Set(constraint.cells.map(c => `${c.x},${c.y}`));
+            if ([...exSet].every(k => newSet.has(k))) {
+                constraint = {
+                    origin: { x, y },
+                    count: constraint.count - ex.count,
+                    among: constraint.among - ex.among,
+                    cells: constraint.cells.filter(c => !exSet.has(`${c.x},${c.y}`))
+                };
             }
         }
     }
 
-    if (constraint.count == 0 && constraint.among > 0) {
-        // all cells are safe
+    if (constraint.count < 0 || constraint.among < constraint.count) return;
+
+    // immediate deductions
+    if (constraint.count === 0) {
         for (const c of constraint.cells) {
-            grid[c.y][c.x] = { ...c, state: 'S' };
-            safeCells.push(neighbors.find(n => n.x === c.x && n.y === c.y));
-            updateConstraints(grid, c.x, c.y, safeCells, mineCells);
+            const neighbor = getCell(grid, c.x, c.y);
+            if (neighbor.state === 'U') {
+                neighbor.state = 'S';
+                safeCells.push(neighbor);
+                updateConstraints(grid, c.x, c.y, safeCells, mineCells);
+            }
         }
         return;
-    } else if (constraint.among < 0 || constraint.count < 0) {
-        return; // i think never happens
-    } else if (constraint.count == constraint.among) {
-        // all cells are mines
+    }
+    if (constraint.count === constraint.among) {
         for (const c of constraint.cells) {
-            grid[c.y][c.x] = { ...c, state: 'F' };
-            mineCells.push(neighbors.find(n => n.x === c.x && n.y === c.y));
-            updateConstraints(grid, c.x, c.y, safeCells, mineCells);
+            const neighbor = getCell(grid, c.x, c.y);
+            if (neighbor.state === 'U') {
+                neighbor.state = 'F';
+                mineCells.push(neighbor);
+                updateConstraints(grid, c.x, c.y, safeCells, mineCells);
+            }
         }
         return;
     }
 
-    for (const n of neighbors) {
-        // check if this neighbor belongs to the constraint
-        if (!constraint.cells.some(c => c.x === n.x && c.y === n.y)) { continue; }
-        // Check if the constraint already exists
+    const removed = [];
+    for (const ex of existingConstraints) {
+        if (constraint.among <= ex.among && sameCellSet(constraint.cells, ex.cells)) {
+            removed.push(ex);
+        }
+    }
+    for (const ex of removed) {
+        for (const c of ex.cells) {
+            removeConstraint(grid, c.x, c.y, ex);
+        }
+    }
+
+    for (const n of unknowns) {
+        if (!n.constraints) n.constraints = [];
         const exists = n.constraints.some(c => c.origin.x === x && c.origin.y === y);
         if (!exists) {
             n.constraints.push(constraint);
         } else {
-            // Update the existing constraint
-            const existingConstraint = n.constraints.find(c => c.origin.x === x && c.origin.y === y);
-            existingConstraint.count = constraint.count;
-            existingConstraint.among = constraint.among;
-            existingConstraint.cells = constraint.cells;
+            const c = n.constraints.find(c => c.origin.x === x && c.origin.y === y);
+            c.count = constraint.count;
+            c.among = constraint.among;
+            c.cells = constraint.cells;
         }
     }
+
+    for (const ex of removed) {
+        generateConstraints(grid, ex.origin.x, ex.origin.y, safeCells, mineCells);
+    }
+
+
+
+
+    /*
+        if (constraint.count == 0 && constraint.among > 0) {
+            // all cells are safe
+            for (const c of constraint.cells) {
+                grid[c.y][c.x] = { ...c, state: 'S' };
+                safeCells.push(neighbors.find(n => n.x === c.x && n.y === c.y));
+                updateConstraints(grid, c.x, c.y, safeCells, mineCells);
+            }
+            return;
+        } else if (constraint.among < 0 || constraint.count < 0) {
+            return; // i think never happens
+        } else if (constraint.count == constraint.among) {
+            // all cells are mines
+            for (const c of constraint.cells) {
+                grid[c.y][c.x] = { ...c, state: 'F' };
+                mineCells.push(neighbors.find(n => n.x === c.x && n.y === c.y));
+                updateConstraints(grid, c.x, c.y, safeCells, mineCells);
+            }
+            return;
+        }
+    
+        // check if the new constraint is more limiting than existing constraints
+        let removedConstraints = [];
+        for (const existing of existingConstraints) {
+            if (constraint.among < existing.among) {
+                console.log(constraint, existing);
+                removedConstraints.push(existing);
+                for (const c of existing.cells) {
+                    removeConstraint(grid, c.x, c.y, existing);
+                }
+            }
+        }
+    
+        for (const n of neighbors) {
+            // check if this neighbor belongs to the constraint
+            if (!constraint.cells.some(c => c.x === n.x && c.y === n.y)) { continue; }
+            // Check if the constraint already exists
+            const exists = n.constraints.some(c => c.origin.x === x && c.origin.y === y);
+            if (!exists) {
+                n.constraints.push(constraint);
+            } else {
+                // Update the existing constraint
+                const existingConstraint = n.constraints.find(c => c.origin.x === x && c.origin.y === y);
+                existingConstraint.count = constraint.count;
+                existingConstraint.among = constraint.among;
+                existingConstraint.cells = constraint.cells;
+            }
+        }
+    
+        if (constraint.origin.x === 27 && constraint.origin.y === 2) { console.log("nigga"); console.log(grid); }
+    
+        if (removedConstraints.length > 0) {
+            for (const c of removedConstraints) {
+                generateConstraints(grid, c.origin.x, c.origin.y, safeCells, mineCells);
+            }
+        }*/
 }
 
 function applyBasicLogic(grid, cell, neighbors, safeCells, mineCells) {
@@ -319,11 +424,11 @@ function checkConstraints(grid, x, y, safeCells, mineCells) {
 /*function checkConstraints(grid, x, y, safeCells, mineCells) {
     const cell = getCell(grid, x, y);
     if (!cell || typeof cell.state !== 'number' || cell.state === 0) return false;
-
+ 
     // get neighbors and unopened neighbors
     const neighbors = getNeighbors(grid, x, y);
     const unopened = neighbors.filter(n => n.state === 'U');
-
+ 
     // collect unique constraints and count how many times each appears
     const constraintMap = new Map();
     for (const n of unopened) {
@@ -337,11 +442,11 @@ function checkConstraints(grid, x, y, safeCells, mineCells) {
             }
         }
     }
-
+ 
     // check if any constraint reveals information
     const constraints = [...constraintMap.values()];
     let progress = false;
-
+ 
 }*/
 
 function getCell(grid, x, y) {

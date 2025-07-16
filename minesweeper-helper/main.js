@@ -256,6 +256,10 @@ function generateConstraints(grid, x, y, safeCells, mineCells) {
     let progress = false;
     const cell = getCell(grid, x, y);
 
+    if (x === 20 && y === 4) {
+        console.log("A");
+    }
+
     // discard any cells that are not opened with more than 0 mines around them
     if (!cell || typeof cell.state !== 'number' || cell.state === 0) return false;
 
@@ -311,12 +315,26 @@ function generateConstraints(grid, x, y, safeCells, mineCells) {
             };
         }
         else if (ex.count < constraint.count && (constraint.count - ex.count === constraint.among - sharedCells(ex.cells, constraint.cells))) {
+            // unknown spots outside the existing constraint but inside the new are mines
+
+            const outsideExConstraint = constraint.cells.filter(c => !ex.cells.some(ec => ec.x === c.x && ec.y === c.y));
+            if (outsideExConstraint.length !== 0) {
+                for (const c of outsideExConstraint) {
+                    const neighbor = getCell(grid, c.x, c.y);
+                    if (neighbor.state === 'U') {
+                        neighbor.state = 'F';
+                        mineCells.push(neighbor);
+                        clearConstraints(grid, c.x, c.y);
+                    }
+                }
+            }
+
             const exSet = new Set(ex.cells.map(c => `${c.x},${c.y}`));
             constraint = {
                 origin: { x, y },
-                count: constraint.count - ex.count,
-                among: constraint.among - sharedCells(ex.cells, constraint.cells),
-                cells: constraint.cells.filter(c => !exSet.has(`${c.x},${c.y}`))
+                count: ex.count,
+                among: sharedCells(ex.cells, constraint.cells),
+                cells: constraint.cells.filter(c => exSet.has(`${c.x},${c.y}`))
             };
         }
     }
@@ -349,8 +367,9 @@ function generateConstraints(grid, x, y, safeCells, mineCells) {
 
     const removed = [];
     for (const ex of existingConstraints) {
-        if ((constraint.among <= ex.among && includesCellSet(constraint.cells, ex.cells)) ||
-            (constraint.count >= ex.count && includesCellSet(constraint.cells, ex.cells)) ||
+        if ((constraint.among < ex.among && includesCellSet(constraint.cells, ex.cells)) ||
+            (constraint.count >= ex.count && includesCellSet(constraint.cells, ex.cells) && !sameCellSet(constraint.cells, ex.cells)) ||
+            (constraint.count > ex.count && sameCellSet(constraint.cells, ex.cells)) ||
             (constraint.count < ex.count && sharedCells(ex.cells, constraint.cells) == ex.count)) {
             progress = true;
             removed.push(ex);
@@ -368,7 +387,9 @@ function generateConstraints(grid, x, y, safeCells, mineCells) {
         among: constraint.among,
         cells: constraint.cells.map(c => ({ ...c }))
     };
-    for (const n of unknowns) {
+    const unknowns2 = getNeighbors(grid, x, y).filter(n => n.state === 'U');
+    for (const n of unknowns2) {
+        if (!sharedConstraint.cells.some(c => c.x === n.x && c.y === n.y)) continue;
         if (!n.constraints) n.constraints = [];
         const exists = n.constraints.some(c => c.origin.x === sharedConstraint.origin.x && c.origin.y === sharedConstraint.origin.y);
         if (!exists) {
@@ -385,7 +406,7 @@ function generateConstraints(grid, x, y, safeCells, mineCells) {
             }
         }
     }
-    //return progress;
+    return progress;
 }
 
 function applyBasicLogic(grid, cell, x, y, neighbors, safeCells, mineCells) {
@@ -441,15 +462,13 @@ function solveMinesweeper(grid, minesLeft, safeCells = [], mineCells = []) {
                 // ####################################################
                 if (applyBasicLogic(grid, cell, x, y, neighbors, safeCells, mineCells)) {
                     progress = true;
+                    console.log("applied basic logic at", x, y);
                 }
 
                 if (generateConstraints(grid, x, y, safeCells, mineCells)) {
                     progress = true;
+                    console.log("generated constraints at", x, y);
                 }
-                if (generateConstraints(grid, x, y, safeCells, mineCells)) {
-                    progress = true;
-                }
-
             }
         }
     }

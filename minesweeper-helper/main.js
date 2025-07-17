@@ -337,6 +337,11 @@ function generateConstraints(grid, x, y, safeCells, mineCells) {
                 cells: constraint.cells.filter(c => exSet.has(`${c.x},${c.y}`))
             };
         }
+        else if (constraint.count < ex.count && (ex.count - constraint.count === ex.among - sharedCells(ex.cells, constraint.cells))) {
+            for (const c of ex.cells) {
+                removeConstraint(grid, c.x, c.y, ex);
+            }
+        }
     }
 
     if (constraint.count < 0 || constraint.among <= 0 || constraint.among < constraint.count) return false;
